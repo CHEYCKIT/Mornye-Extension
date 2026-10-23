@@ -1,9 +1,10 @@
 {
   "name": "genie-music",
   "displayName": "Genie Music",
-  "version": "2.0.2",
+  "version": "2.0.4",
   "description": "Genie Music track and album metadata, paginated artist catalogs, charts, and URL imports",
   "author": "custom",
+  "homepage": "https://github.com/ldw0403-netizen/K-Music",
   "permissions": {
     "network": [
       "www.genie.co.kr",

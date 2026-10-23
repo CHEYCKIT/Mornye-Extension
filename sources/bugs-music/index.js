@@ -4,7 +4,10 @@ var TOP100_CACHE = [];
 var TOP100_CACHE_TIME = 0;
 var FEED_CACHE = {};
 var TRACK_CACHE = {};
+var ALBUM_CACHE = {};
 var CACHE_TTL_MS = 5 * 60 * 1000;
+var DURATION_LOOKUP_LIMIT = 50;
+var DURATION_LOOKUP_BUDGET_MS = 10 * 1000;
 
 function initialize() {
   return {
@@ -17,6 +20,7 @@ function cleanup() {
   TOP100_CACHE_TIME = 0;
   FEED_CACHE = {};
   TRACK_CACHE = {};
+  ALBUM_CACHE = {};
   return {
     success: true
   };
@@ -108,7 +112,7 @@ function getTrackName(row) {
 
 function getArtistName(row) {
   var artistCell = row.match(/<p[^>]*class=["'][^"']*\bartist\b[^"']*["'][^>]*>([\s\S]*?)<\/p>/i);
-  if (artistCell) return linkNames(artistCell[1], "artist");
+  if (artistCell) return multiArtistNames(artistCell[1]) || linkNames(artistCell[1], "artist");
   return firstMatch(row, [
     /<p[^>]*class=["'][^"']*\bartist\b[^"']*["'][^>]*>[\s\S]*?<a[^>]*>([\s\S]*?)<\/a>/i,
     /<p[^>]*class=["'][^"']*artistName[^"']*["'][^>]*>[\s\S]*?<a[^>]*>([\s\S]*?)<\/a>/i,
@@ -141,6 +145,19 @@ function linkNames(html, kind) {
     if (name && !seen[name]) { names.push(name); seen[name] = true; }
   }
   return names.join(", ");
+}
+
+// List rows link only the first artist of a collaboration; the rest are in
+// the "name||name||id||status" entries of the artist popup handler.
+function multiArtistNames(cell) {
+  var match = cell.match(/openMultiArtistSearchResultPopLayer\(\s*this\s*,\s*'((?:[^'\\]|\\.)*)'/i);
+  if (!match) return "";
+  var names = [], seen = {};
+  match[1].split(/\\+n/).forEach(function(entry) {
+    var name = cleanText(entry.split("||")[0].replace(/\\(.)/g, "$1"));
+    if (name && !seen[name]) { names.push(name); seen[name] = true; }
+  });
+  return names.length > 1 ? names.join(", ") : "";
 }
 
 function getArtistId(html) {
@@ -416,6 +433,31 @@ function safeTracks(url) {
   }
 }
 
+// Album rows carry no running time; the web player's per-track JSON does.
+// Lookups stop at a budget so a long album still opens within the host timeout.
+function fillPlayerDurations(tracks) {
+  var started = Date.now(), lookups = 0;
+  for (var i = 0; i < tracks.length; i++) {
+    if (tracks[i].duration_ms) continue;
+    if (lookups >= DURATION_LOOKUP_LIMIT || Date.now() - started >= DURATION_LOOKUP_BUDGET_MS) return;
+    lookups++;
+    tracks[i].duration_ms = playerDuration(tracks[i].id);
+  }
+}
+
+function playerDuration(id) {
+  try {
+    var response = http.get(BASE_URL + "/player/track/" + id, {
+      "User-Agent": "Mozilla/5.0",
+      "Accept": "application/json"
+    });
+    var track = response && response.ok ? JSON.parse(response.body || "{}").track : null;
+    return track && String(track.track_id) === String(id) ? durationMs(track.len) : 0;
+  } catch (error) {
+    return 0;
+  }
+}
+
 function searchTracks(query) {
   if (!query || !String(query).trim()) return [];
   var tracks = parseTracks(fetchHtml(BASE_URL + "/search/track?q=" + encodeURIComponent(String(query).trim())));
@@ -499,6 +541,8 @@ function getAlbum(albumId) {
   }
 
   id = normalizeId(id, "album");
+  var cachedAlbum = ALBUM_CACHE[id];
+  if (cachedAlbum && Date.now() - cachedAlbum.time < CACHE_TTL_MS) return cachedAlbum.value;
   var html = fetchHtml(BASE_URL + "/album/" + id);
   var data = structuredData(html, "MusicAlbum");
   var actualId = firstMatch(String(data.url || data["@id"] || ""), [/\/album\/(\d+)(?:[/?#]|$)/i]);
@@ -525,7 +569,8 @@ function getAlbum(albumId) {
     track.disc_number = track.disc_number || 1;
     return track;
   });
-  return {
+  fillPlayerDurations(tracks);
+  var result = {
     id: id,
     uri: "bugs:album:" + id,
     type: "album",
@@ -541,6 +586,8 @@ function getAlbum(albumId) {
     provider_id: PROVIDER_ID,
     tracks: tracks.map(makeTrackResult)
   };
+  cacheStore(ALBUM_CACHE, id, { time: Date.now(), value: result });
+  return result;
 }
 
 function getArtist(artistId) {
@@ -662,6 +709,19 @@ function getHomeFeed() {
     BASE_URL + "/genre/chart/kpop/ost/total/day"
   ]);
   if (ost.length) sections.push(makeSection("bugs:ost", "OST", ost));
+
+  // 장르별 일간 차트 (벅스 장르 차트 경로)
+  var extraGenres = [
+    ["kpop/idol", "아이돌"], ["kpop/rns", "알앤비/소울"], ["kpop/indie", "인디"],
+    ["kpop/rock", "락/메탈"], ["kpop/folk", "포크/어쿠스틱"], ["kpop/elec", "일렉트로닉"],
+    ["kpop/jazz", "재즈"], ["kpop/adultkpop", "성인가요"],
+    ["pop/pop", "해외 팝"], ["pop/hiphop", "해외 랩/힙합"], ["pop/rnb", "해외 알앤비/소울"],
+    ["etc/njpop", "J-POP"], ["etc/nnewage", "뉴에이지"]
+  ];
+  for (var gi = 0; gi < extraGenres.length; gi++) {
+    var gTracks = safeTracks(BASE_URL + "/genre/chart/" + extraGenres[gi][0] + "/total/day");
+    if (gTracks.length) sections.push(makeSection("bugs:genre:" + extraGenres[gi][0].replace("/", "-"), extraGenres[gi][1], gTracks.slice(0, 30)));
+  }
 
   if (!sections.length) throw new Error("Bugs home feed is unavailable");
   var feed = { success: true, greeting: "Bugs Music", sections: sections };

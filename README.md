@@ -46,7 +46,10 @@ the gateway's `appVersion` unchanged to preserve its existing session scope.
 Bugs Music, Melon, and Genie provide catalog metadata and URL imports. Their
 enrichment reads their own track details; it does not call the deprecated
 Songlink public API. Audio downloads and cross-service matching remain the
-responsibility of the app's configured download providers.
+responsibility of the app's configured download providers. None of the three
+services publishes ISRC codes, so matching relies on titles, artists, and
+running times. Track and album lookups read running times from each service's
+player or mobile metadata; search results and charts do not carry them.
 
 ## Review Process
 

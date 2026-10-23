@@ -1,13 +1,16 @@
 {
   "name": "melon-music",
   "displayName": "Melon Music",
-  "version": "2.0.2",
-  "description": "Melon Music metadata provider with charts, album and artist catalogs, and DJ playlists",
+  "version": "2.0.4",
+  "description": "Melon Music metadata provider with charts, album and artist catalogs, DJ playlists, and URL imports",
   "author": "custom",
+  "homepage": "https://github.com/ldw0403-netizen/K-Music",
   "permissions": {
     "network": [
       "www.melon.com",
-      "melon.com"
+      "melon.com",
+      "m2.melon.com",
+      "m.app.melon.com"
     ],
     "storage": false,
     "file": false

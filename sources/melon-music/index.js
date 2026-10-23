@@ -1,7 +1,11 @@
 var BASE_URL = "https://www.melon.com";
+var MOBILE_API_URL = "https://m2.melon.com/m6/v1";
+var MOBILE_WEB_URL = "https://m.app.melon.com";
+var MOBILE_USER_AGENT = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148";
 var PROVIDER_ID = "melon-music";
 var FEED_CACHE = {};
 var TRACK_CACHE = {};
+var ALBUM_CACHE = {};
 var CACHE_TTL_MS = 5 * 60 * 1000;
 
 function initialize() {
@@ -13,6 +17,7 @@ function initialize() {
 function cleanup() {
   FEED_CACHE = {};
   TRACK_CACHE = {};
+  ALBUM_CACHE = {};
   return {
     success: true
   };
@@ -83,7 +88,11 @@ function getTrackId(row) {
 }
 
 function getTrackName(row) {
-  return firstMatch(row, [/<a\b[^>]*href=["'][^>]*playSong\([^>]*>([\s\S]*?)<\/a>/i]);
+  return firstMatch(row, [
+    /<a\b[^>]*href=["'][^>]*playSong\([^>]*>([\s\S]*?)<\/a>/i,
+    // Songs Melon cannot stream, such as CD-only demos, show an unlinked title.
+    /<div\b[^>]*class=["'][^"']*\bwrap_song_info\b[^"']*["'][^>]*>[\s\S]*?<span\b[^>]*class=["']disabled["'][^>]*>([\s\S]*?)<\/span>/i
+  ]);
 }
 
 function getArtistName(row) {
@@ -381,6 +390,7 @@ function makeTrackResult(track) {
     disc_number: Number(track.disc_number || 0),
     total_tracks: Number(track.total_tracks || 0),
     genre: track.genre || "",
+    composer: track.composer || "",
     label: track.label || "",
     external_urls: BASE_URL + "/song/detail.htm?songId=" + String(track.id),
     external_links: { melon: "https://www.melon.com/song/detail.htm?songId=" + String(track.id), source: "https://www.melon.com/song/detail.htm?songId=" + String(track.id) },
@@ -432,6 +442,59 @@ function safeTracks(url) {
   return tracks;
 }
 
+// The web pages omit running times and disc numbers; the mobile app's JSON
+// carries them. A failure leaves those fields empty instead of failing the page.
+function mobileJson(path) {
+  try {
+    var response = http.get(MOBILE_API_URL + path, {
+      "User-Agent": "Mozilla/5.0",
+      "Accept": "application/json"
+    });
+    var data = response && response.ok ? JSON.parse(response.body || "{}") : null;
+    return data && data.response && String(data.response.RESULTCODE) === "0" ? data.response : null;
+  } catch (error) {
+    log.warn("Melon mobile metadata unavailable: " + String(error.message || error));
+    return null;
+  }
+}
+
+function playTimeMs(value) {
+  var seconds = Number(value);
+  return seconds > 0 ? Math.round(seconds * 1000) : 0;
+}
+
+function listNames(list, key) {
+  return (Array.isArray(list) ? list : []).map(function (item) {
+    return cleanText(item && item[key]);
+  }).filter(Boolean).join(", ");
+}
+
+// Desktop search rows have no artwork; the mobile web results carry each
+// song's album image.
+function fillSearchCovers(tracks, query) {
+  if (!tracks.some(function (track) { return !track.cover_url; })) return;
+  try {
+    var response = http.get(MOBILE_WEB_URL + "/search/mobile4web/searchsong_list.htm?keyword=" +
+      encodeURIComponent(query) + "&startIndex=1&pageSize=" + tracks.length, {
+      "User-Agent": MOBILE_USER_AGENT,
+      "Accept": "text/html,application/xhtml+xml"
+    });
+    if (!response || !response.ok) return;
+    var bySong = {}, byAlbum = {};
+    (String(response.body || "").match(/<li\b[^>]*\bd-songId=["']\d+["'][^>]*>/gi) || []).forEach(function (tag) {
+      var cover = normalizeCoverUrl(firstMatch(tag, [/\bd-albumImage=["']([^"']+)["']/i]));
+      if (!cover) return;
+      bySong[firstMatch(tag, [/\bd-songId=["'](\d+)["']/i])] = cover;
+      byAlbum[firstMatch(tag, [/\bd-albumId=["'](\d+)["']/i])] = cover;
+    });
+    tracks.forEach(function (track) {
+      track.cover_url = track.cover_url || bySong[track.id] || byAlbum[track.album_id] || "";
+    });
+  } catch (error) {
+    log.warn("Melon search artwork unavailable: " + String(error.message || error));
+  }
+}
+
 function searchTracks(query, limit) {
   if (!query || !String(query).trim()) return [];
   var url = BASE_URL + "/search/song/index.htm?q=" + encodeURIComponent(String(query).trim());
@@ -441,7 +504,9 @@ function searchTracks(query, limit) {
   }
   var count = Number(limit);
   if (!(count > 0)) count = 50;
-  return tracks.slice(0, Math.min(100, count)).map(makeTrackResult);
+  tracks = tracks.slice(0, Math.min(100, count));
+  if (tracks.length) fillSearchCovers(tracks, String(query).trim());
+  return tracks.map(makeTrackResult);
 }
 
 function getTrack(trackId) {
@@ -472,6 +537,15 @@ function getTrack(trackId) {
   };
   if (!track.name || !track.artists || !track.album_id || !track.album_name) {
     throw new Error("Melon track metadata was incomplete or unrecognized: " + id);
+  }
+  if (!track.duration_ms) {
+    var info = mobileJson("/song/info.json?songId=" + id);
+    var song = info && info.SONGINFO;
+    if (song && String(song.SONGID) === id) {
+      track.duration_ms = playTimeMs(song.PLAYTIME);
+      track.genre = track.genre || listNames(info.GENRELIST, "GENRENAME");
+      track.composer = listNames(info.CMPSRLIST, "ARTISTNAME");
+    }
   }
   var result = makeTrackResult(track);
   cacheStore(TRACK_CACHE, id, { time: Date.now(), track: result });
@@ -504,6 +578,8 @@ function getAlbum(albumId) {
     return makeVirtualAlbum(id, hot ? "멜론 HOT 100" : "멜론 TOP 100", cached, cached[0].cover_url);
   }
   id = resourceId(id, "album");
+  var cachedAlbum = ALBUM_CACHE[id];
+  if (cachedAlbum && Date.now() - cachedAlbum.time < CACHE_TTL_MS) return cachedAlbum.value;
   var html = fetchHtml(BASE_URL + "/album/detail.htm?albumId=" + id);
   var page = structuredData(html, "MusicAlbum");
   var detail = elementContent(html, "div", "section_info");
@@ -517,26 +593,43 @@ function getAlbum(albumId) {
   var date = releaseDate(detail), genre = detailValue(detail, "장르"), label = detailValue(detail, "발매사");
   var tracks = parseTracks(elementContent(html, "div", "service_list_song"));
   if (!name || !artist.name || !tracks.length) throw new Error("Melon album metadata was incomplete or unrecognized: " + id);
+  var songs = tracks.every(function (track) { return track.duration_ms; }) ? {} : albumSongs(id);
   tracks = tracks.map(function (track, index) {
+    var song = songs[track.id] || {};
     track.album_id = id;
     track.album_name = name;
     track.album_artist = artist.name;
     track.cover_url = cover;
     track.release_date = date;
-    track.track_number = index + 1;
+    track.track_number = song.number || index + 1;
     track.total_tracks = tracks.length;
-    track.disc_number = 1;
+    track.disc_number = song.disc || 1;
+    track.duration_ms = track.duration_ms || song.duration || 0;
     track.genre = genre;
     track.label = label;
     return makeTrackResult(track);
   });
-  return {
+  var album = {
     id: id, uri: PROVIDER_ID + ":album:" + id, type: "album", item_type: "album",
     name: name, artists: artist.name, artist_id: artist.id,
     total_tracks: tracks.length, album_type: "album",
     cover_url: cover, images: cover, release_date: date,
     provider_id: PROVIDER_ID, tracks: tracks
   };
+  cacheStore(ALBUM_CACHE, id, { time: Date.now(), value: album });
+  return album;
+}
+
+function albumSongs(id) {
+  var listing = mobileJson("/album/song/list.json?albumId=" + id), songs = {};
+  ((listing && listing.CDLIST) || []).forEach(function (cd) {
+    (cd.SONGLIST || []).forEach(function (song) {
+      if (song.ALBUMID && String(song.ALBUMID) !== id) return;
+      songs[String(song.SONGID)] = { disc: Number(cd.CDNO) || 0, number: Number(song.TRACKNO) || 0,
+        duration: playTimeMs(song.PLAYTIME) };
+    });
+  });
+  return songs;
 }
 
 function getPlaylist(playlistId) {
@@ -579,6 +672,24 @@ function optionalSection(url, title, sections) {
   }
 }
 
+function djTodaySection() {
+  var html = fetchHtml(BASE_URL + "/dj/today/djtoday_list.htm");
+  var re = /goDjPlaylistDetail\([^)]*?['"](\d+)['"]\s*\)\s*;?["'][^>]*?title=["']([^"']*?)\s*-\s*페이지 이동["'][^>]*>\s*<img[^>]*?src=["']([^"']+)["']/gi;
+  var items = [], seen = {}, m;
+  while ((m = re.exec(html)) !== null) {
+    var id = m[1];
+    if (seen[id]) continue;
+    seen[id] = true;
+    var name = cleanText(m[2]);
+    if (!name) continue;
+    var cover = normalizeCoverUrl(m[3]);
+    items.push({ id: id, uri: PROVIDER_ID + ":playlist:" + id, type: "playlist", item_type: "playlist",
+      name: name, description: "Melon DJ", cover_url: cover, images: cover, provider_id: PROVIDER_ID });
+  }
+  if (!items.length) throw new Error("Melon DJ list was unrecognized");
+  return { uri: PROVIDER_ID + ":dj-today", title: "멜론 DJ", items: items };
+}
+
 function getHomeFeed() {
   var top = chartTracks("top");
   var sections = [{ uri: PROVIDER_ID + ":top100", title: "멜론 TOP 100", items: [makeVirtualAlbum("melon-top100", "멜론 TOP 100", top, top[0].cover_url)] }];
@@ -590,6 +701,11 @@ function getHomeFeed() {
   }
   optionalSection(BASE_URL + "/new/index.htm", "최신음악", sections);
   optionalSection(BASE_URL + "/genre/song_list.htm?gnrCode=GN0100", "장르음악", sections);
+  try {
+    sections.push(djTodaySection());
+  } catch (error) {
+    log.warn("Melon DJ section unavailable: " + String(error.message || error));
+  }
   return { success: true, greeting: "Melon Music", sections: sections };
 }
 
@@ -624,12 +740,19 @@ function getArtist(artistId) {
       release_date: firstMatch(items[i], [/<span\b[^>]*class=["']cnt_view["'][^>]*>([\s\S]*?)<\/span>/i]).replace(/\./g, "-"),
       total_tracks: 0, tracks: [], provider_id: PROVIDER_ID, item_type: "album" });
   }
+  // Popular song rows have no artwork; reuse the covers of this artist's albums,
+  // then the mobile search results for songs from older albums.
+  var albumCovers = {};
+  albums.forEach(function (album) { if (album.cover_url) albumCovers[album.id] = album.cover_url; });
+  songs.forEach(function (song) { song.cover_url = song.cover_url || albumCovers[song.album_id] || ""; });
+  if (songs.length) fillSearchCovers(songs, name);
   return { id: id, name: name, uri: PROVIDER_ID + ":artist:" + id, type: "artist", provider_id: PROVIDER_ID,
     image_url: normalizeCoverUrl(pageMeta(html, "og:image")), top_tracks: songs.map(makeTrackResult), albums: albums };
 }
 
 function handleUrl(url) {
-  var match = String(url || "").match(/^https?:\/\/(?:www\.)?melon\.com\/(song\/detail|album\/detail|artist\/(?:detail|timeline|song|album)|landing\/playList|mymusic\/dj\/mymusicdjplaylistview_inform)\.htm\?([^#]*)/i);
+  // Mobile and other Melon subdomains share the desktop detail paths.
+  var match = String(url || "").match(/^https?:\/\/(?:[a-z0-9-]+\.)*melon\.com\/(song\/detail|album\/detail|artist\/(?:detail|timeline|song|album)|landing\/playList|mymusic\/dj\/mymusicdjplaylistview_inform)\.htm\?([^#]*)/i);
   if (!match) throw new Error("Unsupported Melon URL");
   var resource = match[1].toLowerCase();
   var type = resource === "song/detail" ? "track" : resource === "album/detail" ? "album" : resource.indexOf("artist/") === 0 ? "artist" : "playlist";

@@ -6,6 +6,8 @@ var ARTIST_CACHE = {};
 var TRACK_CACHE = {};
 var FEED_CACHE = {};
 var CACHE_TTL_MS = 5 * 60 * 1000;
+var DURATION_LOOKUP_LIMIT = 50;
+var DURATION_LOOKUP_BUDGET_MS = 10 * 1000;
 
 function initialize() {
   return {
@@ -445,6 +447,7 @@ function getAlbum(albumId) {
     t.genre = infoValue(main, 10);
     return t;
   });
+  fillTrackDurations(tracks);
   var cover = pageCover || (tracks.length ? tracks[0].cover_url : "");
   var album = {
     id: id,
@@ -465,6 +468,25 @@ function getAlbum(albumId) {
   cacheStore(ALBUM_CACHE, id, { time: Date.now(), value: album });
   return album;
 }
+
+// Album rows carry no running time; each song page does. Lookups stop at a
+// budget so a long album still opens within the host timeout.
+function fillTrackDurations(tracks) {
+  var started = Date.now(), lookups = 0;
+  for (var i = 0; i < tracks.length; i++) {
+    if (tracks[i].duration_ms) continue;
+    if (lookups >= DURATION_LOOKUP_LIMIT || Date.now() - started >= DURATION_LOOKUP_BUDGET_MS) return;
+    lookups++;
+    try {
+      var detail = getTrack(tracks[i].id);
+      tracks[i].duration_ms = detail.duration_ms;
+      tracks[i].composer = tracks[i].composer || detail.composer;
+    } catch (error) {
+      log.warn("Genie track duration unavailable: " + String(error.message || error));
+    }
+  }
+}
+
 function loadTop200() {
   var all = [];
   for (var page = 1; page <= 4; page++) {
@@ -572,7 +594,8 @@ function getArtist(artistId) {
 }
 
 function handleUrl(url) {
-  var match = String(url || "").match(/^https?:\/\/(?:www\.)?genie\.co\.kr\/detail\/(songInfo|albumInfo|artistInfo)\?([^#]*)/i);
+  // Mobile and other Genie subdomains share the desktop detail paths.
+  var match = String(url || "").match(/^https?:\/\/(?:[a-z0-9-]+\.)*genie\.co\.kr\/detail\/(songInfo|albumInfo|artistInfo)\?([^#]*)/i);
   if (!match) return null;
   var parameters = match[2].replace(/&amp;/gi, "&");
   var key = match[1].toLowerCase() === "songinfo" ? "xgnm" : match[1].toLowerCase() === "albuminfo" ? "axnm" : "xxnm";

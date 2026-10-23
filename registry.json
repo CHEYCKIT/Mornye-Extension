@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-10-22T00:00:00Z",
+  "updated_at": "2026-10-23T00:00:00Z",
   "extensions": [
     {
       "id": "spotify-web",
@@ -165,10 +165,10 @@
       "id": "bugs-music",
       "name": "bugs-music",
       "display_name": "Bugs Music",
-      "version": "2.0.2",
+      "version": "2.0.4",
       "description": "Bugs Music metadata provider with accurate track and album details, artist catalogs, TOP100, genre charts, and URL imports.",
       "download_url": "https://raw.githubusercontent.com/spotiflacapp/SpotiFLAC-Extension/main/extensions/bugs-music.sflx",
-      "sha256": "a7cc1768fd5ac076449b2457520e108fc5ec689425d7e9068a21157017af81e6",
+      "sha256": "a20fbc9675ef9fae526be360b74631d02e74b785c57590b3494a20297bf4ec6f",
       "category": "integration",
       "tags": [
         "bugs",
@@ -178,17 +178,17 @@
         "homefeed"
       ],
       "downloads": 0,
-      "updated_at": "2026-10-22T00:00:00Z",
+      "updated_at": "2026-10-23T00:00:00Z",
       "min_app_version": "3.0.1"
     },
     {
       "id": "melon-music",
       "name": "melon-music",
       "display_name": "Melon Music",
-      "version": "2.0.2",
+      "version": "2.0.4",
       "description": "Melon Music metadata provider with song search, album and artist catalogs, DJ playlists, separate TOP100 and HOT100 charts, and URL imports.",
       "download_url": "https://raw.githubusercontent.com/spotiflacapp/SpotiFLAC-Extension/main/extensions/melon-music.sflx",
-      "sha256": "9c599d3fd69ad01f2c71e9bb635223426f701343da742752baaaa1db3f80fd74",
+      "sha256": "b40d17d70bd8c3395dd948e64dc815b0f29425913632b4fa54cc1d781eb3b94f",
       "category": "integration",
       "tags": [
         "melon",
@@ -199,17 +199,17 @@
         "playlist"
       ],
       "downloads": 0,
-      "updated_at": "2026-10-22T00:00:00Z",
+      "updated_at": "2026-10-23T00:00:00Z",
       "min_app_version": "3.0.1"
     },
     {
       "id": "genie-music",
       "name": "genie-music",
       "display_name": "Genie Music",
-      "version": "2.0.2",
+      "version": "2.0.4",
       "description": "Genie Music metadata provider with track details, albums, paginated artist catalogs, TOP200, genre charts, and URL imports.",
       "download_url": "https://raw.githubusercontent.com/spotiflacapp/SpotiFLAC-Extension/main/extensions/genie-music.sflx",
-      "sha256": "84d3b352adc89d3096d907d618692f76d4d84128a8eca768da5fb503620fdfae",
+      "sha256": "9ae3e2505bd08969575d001a7262e47323b827860682a52cf1253114becca331",
       "category": "integration",
       "tags": [
         "genie",
@@ -219,7 +219,7 @@
         "homefeed"
       ],
       "downloads": 0,
-      "updated_at": "2026-10-22T00:00:00Z",
+      "updated_at": "2026-10-23T00:00:00Z",
       "min_app_version": "3.0.1"
     },
     {
