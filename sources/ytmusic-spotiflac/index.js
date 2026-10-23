@@ -235,13 +235,16 @@ function isAbsoluteHttpUrl(u) {
 function updateUrlQuery(url, params) {
   try {
     var parsed = new URL(String(url || ""));
+    var query = new URLSearchParams(parsed.search);
     for (var key in params) {
       if (!Object.prototype.hasOwnProperty.call(params, key)) continue;
       var value = params[key];
       if (value === undefined || value === null || value === "") continue;
-      parsed.searchParams.set(key, String(value));
+      query.set(key, String(value));
     }
-    return parsed.toString();
+    var base = parsed.toString().replace(/[?#].*$/, "");
+    var encoded = query.toString();
+    return base + (encoded ? "?" + encoded : "") + (parsed.hash || "");
   } catch (e) {
     return url;
   }
@@ -324,31 +327,49 @@ function getYt1dConfig() {
   return config;
 }
 
-// InnerTube client configs for fallback chain
+// Direct clients follow yt-dlp's current client contexts. Android VR 1.65.10
+// has returned 403 for all formats since August 2026, so it is not a fallback.
 var INNERTUBE_CLIENTS = [
   {
-    name: "android_vr",
-    clientHeaderName: "28",
+    name: "tv_samsung",
+    clientHeaderName: "7",
     requiresGvsPoToken: false,
+    requiresJsPlayer: true,
     body: {
       context: {
         client: {
-          clientName: "ANDROID_VR",
-          clientVersion: "1.65.10",
-          androidSdkVersion: 32,
+          clientName: "TVHTML5",
+          clientVersion: "5.20260707",
           hl: "en",
           gl: "US",
           timeZone: "UTC",
           utcOffsetMinutes: 0,
-          osName: "Android",
-          osVersion: "12L",
-          platform: "MOBILE",
-          deviceMake: "Oculus",
-          deviceModel: "Quest 3",
+          osName: "Tizen",
+          osVersion: "2.4.0",
+          deviceMake: "Samsung",
+          deviceModel: "UKS9800",
         },
       },
     },
-    ua: "com.google.android.apps.youtube.vr.oculus/1.65.10 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip",
+    ua: "Mozilla/5.0 (SMART-TV; Linux; Tizen 2.4.0) AppleWebKit/538.1 (KHTML, like Gecko) Version/2.4.0 TV Safari/538.1",
+    key: CONFIG.innerTubeApiKey,
+  },
+  {
+    name: "web_embedded",
+    clientHeaderName: "56",
+    requiresGvsPoToken: false,
+    requiresJsPlayer: true,
+    body: {
+      context: {
+        client: {
+          clientName: "WEB_EMBEDDED_PLAYER",
+          clientVersion: "2.20260708.00.00",
+          hl: "en",
+          gl: "US",
+        },
+      },
+    },
+    ua: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.5 Safari/605.1.15,gzip(gfe)",
     key: CONFIG.innerTubeApiKey,
   },
   {
@@ -447,7 +468,12 @@ function isGvsPoTokenRequiredFormat(fmt) {
 }
 
 function hasUsableYouTubeFormatURL(fmt) {
-  return !!(fmt && (fmt.url || fmt.signatureCipher || fmt.cipher));
+  if (!fmt || !(fmt.url || fmt.signatureCipher || fmt.cipher)) return false;
+  var mimeType = String(fmt.mimeType || "").toLowerCase();
+  return (
+    mimeType.indexOf("audio/") === 0 ||
+    (Number(fmt.itag) === 18 && mimeType.indexOf("video/mp4") === 0)
+  );
 }
 
 function scoreYouTubeFormat(fmt, clientConfig, hasGvsPoToken) {
@@ -1010,12 +1036,12 @@ function buildYouTubeFormatURL(fmt, playerUrl) {
     if (encryptedSig) {
       var sigValue = solved.sig || "";
       if (!sigValue) return "";
-      parsed.searchParams.set(sigParam, sigValue);
+      rawURL = updateUrlQuery(rawURL, { [sigParam]: sigValue });
     }
-    if (nValue && solved.n) parsed.searchParams.set("n", solved.n);
-    return parsed.toString();
-  } catch (e) {
+    if (nValue && solved.n) rawURL = updateUrlQuery(rawURL, { n: solved.n });
     return rawURL;
+  } catch (e) {
+    return encryptedSig ? "" : rawURL;
   }
 }
 
@@ -1029,6 +1055,21 @@ function _tryInnerTubeClient(videoID, clientConfig, pageInfo, options) {
   // Request content to be served in a way compatible with external download
   reqBody.contentCheckOk = true;
   reqBody.racyCheckOk = true;
+  if (clientConfig.requiresJsPlayer && playerUrlForChallenges) {
+    if (pageInfo.signatureTimestamp === undefined) {
+      var playerCode = loadYouTubePlayerJS(playerUrlForChallenges);
+      var timestamp = playerCode.match(/(?:signatureTimestamp|sts)\s*:\s*(\d{5})/);
+      pageInfo.signatureTimestamp = timestamp ? Number(timestamp[1]) : 0;
+    }
+    if (pageInfo.signatureTimestamp) {
+      reqBody.playbackContext = {
+        contentPlaybackContext: {
+          html5Preference: "HTML5_PREF_WANTS",
+          signatureTimestamp: pageInfo.signatureTimestamp,
+        },
+      };
+    }
+  }
   if (visitorData) {
     reqBody.context.client.visitorData = visitorData;
   }
@@ -1087,35 +1128,36 @@ function _tryInnerTubeClient(videoID, clientConfig, pageInfo, options) {
     visitorData,
     !!options.bypassPoCache,
   );
-  var bestAudio = chooseYouTubeFormat(formats, clientConfig, !!gvsPoToken);
-
-  if (!bestAudio) {
+  var candidates = [];
+  var remaining = formats.slice();
+  while (remaining.length) {
+    var bestAudio = chooseYouTubeFormat(remaining, clientConfig, !!gvsPoToken);
+    if (!bestAudio) break;
+    remaining.splice(remaining.indexOf(bestAudio), 1);
+    var bestAudioURL = buildYouTubeFormatURL(bestAudio, playerUrlForChallenges);
+    if (!bestAudioURL) continue;
+    if (gvsPoToken && isGvsPoTokenRequiredFormat(bestAudio)) {
+      bestAudioURL = updateUrlQuery(bestAudioURL, { pot: gvsPoToken });
+    }
+    candidates.push({
+      url: bestAudioURL,
+      extension: outputExtensionFromYouTubeFormat(bestAudio),
+      itag: bestAudio.itag,
+      mimeType: bestAudio.mimeType || "",
+      contentLength: bestAudio.contentLength || "",
+      bitrate: bestAudio.averageBitrate || bestAudio.bitrate || 0,
+      clientName: clientConfig.name,
+      needsGvsPoToken:
+        clientConfig.requiresGvsPoToken && isGvsPoTokenRequiredFormat(bestAudio),
+      poTokenUsed: !!gvsPoToken,
+      ua: clientConfig.ua,
+    });
+  }
+  if (!candidates.length) {
     return { error: "no usable audio URL (fmts=" + formats.length + ")" };
   }
-
-  var bestAudioURL = buildYouTubeFormatURL(bestAudio, playerUrlForChallenges);
-  if (!bestAudioURL) {
-    return { error: "audio URL solving failed (itag=" + bestAudio.itag + ")" };
-  }
-  if (gvsPoToken && isGvsPoTokenRequiredFormat(bestAudio)) {
-    bestAudioURL = updateUrlQuery(bestAudioURL, { pot: gvsPoToken });
-  }
-
-  var ext = outputExtensionFromYouTubeFormat(bestAudio);
-
-  return {
-    url: bestAudioURL,
-    extension: ext,
-    itag: bestAudio.itag,
-    mimeType: bestAudio.mimeType || "",
-    contentLength: bestAudio.contentLength || "",
-    bitrate: bestAudio.averageBitrate || bestAudio.bitrate || 0,
-    clientName: clientConfig.name,
-    needsGvsPoToken:
-      clientConfig.requiresGvsPoToken && isGvsPoTokenRequiredFormat(bestAudio),
-    poTokenUsed: !!gvsPoToken,
-    ua: clientConfig.ua,
-  };
+  candidates[0].alternatives = candidates.slice(1);
+  return candidates[0];
 }
 
 function findInnerTubeClientByName(name) {
@@ -1231,6 +1273,7 @@ function tryInnerTubeDownloadsLazily(
   youtubeURL,
   coverURL,
 ) {
+  var deferred = [];
   for (var ci = 0; ci < INNERTUBE_CLIENTS.length; ci++) {
     var client = INNERTUBE_CLIENTS[ci];
     L(
@@ -1238,7 +1281,13 @@ function tryInnerTubeDownloadsLazily(
       "[InnerTube] Resolving candidate from " + client.name + " for " + videoID,
     );
 
-    var candidate = _tryInnerTubeClient(videoID, client, pageInfo);
+    var candidate;
+    try {
+      candidate = _tryInnerTubeClient(videoID, client, pageInfo);
+    } catch (error) {
+      L("warn", "[InnerTube] client request failed:", client.name, String(error));
+      continue;
+    }
     if (!candidate || candidate.error) {
       L(
         "warn",
@@ -1248,6 +1297,51 @@ function tryInnerTubeDownloadsLazily(
       continue;
     }
 
+    var candidates = [candidate].concat(candidate.alternatives || []);
+    for (var fi = 0; fi < candidates.length; fi++) {
+      var next = candidates[fi];
+      if (next.extension !== ".opus") {
+        deferred.push(next);
+        continue;
+      }
+      var success = tryInnerTubeCandidateDownload(
+        next,
+        videoID,
+        pageInfo,
+        outputPath,
+        youtubeURL,
+        coverURL,
+      );
+      if (success) return success;
+    }
+  }
+
+  for (var di = 0; di < deferred.length; di++) {
+    var fallback = tryInnerTubeCandidateDownload(
+      deferred[di],
+      videoID,
+      pageInfo,
+      outputPath,
+      youtubeURL,
+      coverURL,
+    );
+    if (fallback) {
+      L("warn", "[YTMusic] Direct Opus unavailable; using", fallback.audio_codec);
+      return fallback;
+    }
+  }
+  return null;
+}
+
+function tryInnerTubeCandidateDownload(
+  candidate,
+  videoID,
+  pageInfo,
+  outputPath,
+  youtubeURL,
+  coverURL,
+) {
+  try {
     L(
       "info",
       "[YTMusic] Trying direct InnerTube download:",
@@ -1324,8 +1418,14 @@ function tryInnerTubeDownloadsLazily(
         );
       }
     }
+  } catch (error) {
+    L(
+      "warn",
+      "[YTMusic] Direct candidate failed:",
+      candidate.clientName,
+      String(error),
+    );
   }
-
   return null;
 }
 
