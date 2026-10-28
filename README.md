@@ -6,7 +6,7 @@
 2. Add your `.sflx` package to the `extensions/` folder
 3. Add your icon image (PNG/JPG, 512x512 recommended) to `icons/` folder
 4. Add entry to `registry.json`
-   - Ensure `icon_url` points to the raw file in the repository (e.g. `https://raw.githubusercontent.com/zarzet/SpotiFLAC-Extension/main/icons/your-icon.png`)
+   - Ensure `icon_url` points to the raw file in the repository (e.g. `https://raw.githubusercontent.com/mornyeapp/Mornye-Extension/main/icons/your-icon.png`)
 5. Create Pull Request
 
 ## Requirements
