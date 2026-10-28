@@ -1870,7 +1870,10 @@ function parseSpotifyProtoTrack(value) {
 
 function extractISRCFromSpotifyMetadataBody(body) {
   if (!body) return "";
-  const match = String(body).match(/isrc[\x00-\x1f]+([A-Za-z0-9]{12})/);
+  const bytes = protobufBytes(body);
+  let text = "";
+  for (let i = 0; i < bytes.length; i++) text += String.fromCharCode(bytes[i]);
+  const match = text.match(/isrc[\x00-\x1f]+([A-Za-z0-9]{12})/);
   return match && match[1] ? match[1].toUpperCase() : "";
 }
 
@@ -1883,18 +1886,21 @@ function getSpotifyMetadataBody(entityType, spotifyID, allowRetry) {
       return null;
     }
 
-    const response = http.get(
+    // Protobuf varints and IDs must reach the parser without UTF-8 decoding.
+    const response = fetch(
       "https://spclient.wg.spotify.com/metadata/4/" +
         entityType +
         "/" +
         gid +
         "?market=from_token",
       {
-        Authorization: "Bearer " + clientState.accessToken,
-        "Client-Token": clientState.clientToken,
-        "Spotify-App-Version": clientState.clientVersion,
-        "App-Platform": "WebPlayer",
-        "User-Agent": utils.randomUserAgent(),
+        headers: {
+          Authorization: "Bearer " + clientState.accessToken,
+          "Client-Token": clientState.clientToken,
+          "Spotify-App-Version": clientState.clientVersion,
+          "App-Platform": "WebPlayer",
+          "User-Agent": utils.randomUserAgent(),
+        },
       },
     );
 
@@ -1905,12 +1911,12 @@ function getSpotifyMetadataBody(entityType, spotifyID, allowRetry) {
       );
     }
 
-    if (response.statusCode === 401 && allowRetry) {
+    if (response.status === 401 && allowRetry) {
       resetAuthState();
       return getSpotifyMetadataBody(entityType, spotifyID, false);
     }
 
-    if (response.statusCode === 404) {
+    if (response.status === 404) {
       log.debug(
         "Spotify metadata endpoint returned 404 for:",
         entityType,
@@ -1919,13 +1925,12 @@ function getSpotifyMetadataBody(entityType, spotifyID, allowRetry) {
       return null;
     }
 
-    if (response.statusCode !== 200) {
-      throw new Error(
-        "Spotify metadata query failed: HTTP " + response.statusCode,
-      );
+    if (response.status !== 200) {
+      throw new Error("Spotify metadata query failed: HTTP " + response.status);
     }
 
-    return response.body || null;
+    const bytes = response.arrayBuffer();
+    return bytes && bytes.length ? bytes : null;
   } catch (e) {
     log.debug("Spotify metadata lookup failed:", e.message);
     return null;

@@ -1,7 +1,7 @@
 {
   "name": "spotify-web",
   "displayName": "Spotify Web",
-  "version": "1.10.3",
+  "version": "1.10.4",
   "description": "Spotify metadata provider for SpotiFLAC Mobile with complete native release, disc, catalog ID, credits, and artwork metadata plus guarded genre enrichment.",
   "homepage": "https://github.com/zarzet/spotify-web",
   "type": [
