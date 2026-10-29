@@ -1300,7 +1300,8 @@ function parseVisualRows(data) {
         track_number: i + 1,
         album_id: albumId,
         external_url: amazonTrackURL(trackId),
-        explicit: amazonItemIsExplicit(row)
+        explicit: amazonItemIsExplicit(row),
+        audio_modes: amazonTrackAudioModes(row)
       });
     }
   }
@@ -1335,7 +1336,6 @@ function parseAlbumFromResponse(data, responseStr, albumId) {
     var schema = extractSchemaOrg(responseStr, "MusicAlbum");
     if (schema) {
       result.title = schema.name || "";
-      result.audio_modes = amazonTrackAudioModes(schema);
       result.explicit = /\[explicit\]/i.test(result.title);
       result.release_date = normalizeAmazonDate(schema.datePublished || "");
       result.year = result.release_date || "";
@@ -1541,6 +1541,7 @@ function parseTrackFromResponse(data, responseStr, trackId) {
     }
     if (schema) {
       result.title = schema.name || "";
+      result.audio_modes = amazonTrackAudioModes(schema);
       result.explicit = /\[explicit\]/i.test(result.title);
       if (schema.duration) {
         result.duration = parseDurationISO(schema.duration);
