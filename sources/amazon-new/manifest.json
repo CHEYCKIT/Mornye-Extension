@@ -1,7 +1,7 @@
 {
   "name": "amazon-new",
   "displayName": "Amazon (New)",
-  "version": "2.3.15",
+  "version": "2.3.16",
   "description": "Opt-in Amazon Music provider with explicit per-track Atmos metadata parsing. Availability depends on the catalogue response; regular lossless downloads remain supported.",
   "type": [
     "metadata_provider",
