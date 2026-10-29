@@ -1644,7 +1644,8 @@ function parseTrackFromResponse(data, responseStr, trackId) {
       for (var k = 0; k < allTracks.length; k++) {
         if (allTracks[k].title && allTracks[k].title.toLowerCase() === titleLower) {
           if (allTracks[k].artist) result.artist = allTracks[k].artist;
-          if (allTracks[k].audio_modes) result.audio_modes = allTracks[k].audio_modes;
+          // A title-only fallback cannot identify the exact recording's audio
+          // mode. Never inherit Atmos across album versions with same title.
           if (!result.duration && allTracks[k].duration) {
             result.duration = allTracks[k].duration;
             result.duration_ms = allTracks[k].duration_ms;
