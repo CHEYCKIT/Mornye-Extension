@@ -20,7 +20,7 @@ function row(id, qualities) {
   return {
     interface: 'Web.TemplatesInterface.v1_0.Touch.WidgetsInterface.DescriptiveRowItemElement',
     primaryText: 'Song ' + id, secondaryText1: 'Artist',
-    primaryTextLink: { deeplink: '/tracks/' + id },
+    primaryTextLink: { deeplink: '/albums/B000000003?trackAsin=' + id },
     ...(qualities === undefined ? {} : { audioQualities: qualities }),
   };
 }
