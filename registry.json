@@ -25,10 +25,10 @@
       "id": "amazon",
       "name": "amazon",
       "display_name": "Amazon Music",
-      "version": "2.3.15",
+      "version": "2.3.16",
       "description": "Amazon Music metadata and downloads with exact-track Atmos catalogue modes, lossless and AC-4. Atmos evidence depends on metadata returned by Amazon.",
       "download_url": "https://raw.githubusercontent.com/mornyeapp/Mornye-Extension/main/extensions/amzn.sflx",
-      "sha256": "e243d856231f262dd46a47d24e644a7064a43bbf3d05a85ac58619533c9e5010",
+      "sha256": "799b3fa94471251923c4ffeb10705f9c8b63195d2075acdcbb20e2e9f92f490a",
       "category": "download",
       "tags": [
         "amazon",
