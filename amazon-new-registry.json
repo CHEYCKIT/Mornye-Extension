@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "updated_at": "2026-10-29T00:00:00Z",
+  "extensions": [
+    {
+      "id": "amazon-new",
+      "name": "amazon-new",
+      "display_name": "Amazon (New)",
+      "version": "2.3.15",
+      "description": "Opt-in Amazon Music provider preserving per-track Atmos tags when reported by the Amazon catalogue; FLAC and AC-4 requests.",
+      "download_url": "https://raw.githubusercontent.com/CHEYCKIT/Mornye-Extension/refs/heads/feature/amazon-new-release-20261029/extensions/amazon-new.sflx",
+      "sha256": "ae1ac4dbeb9028939e39bda1a58fabaedf41e8adc37b9b3fc61ee10c9a5bdca7",
+      "category": "download",
+      "tags": [
+        "amazon",
+        "download",
+        "lossless",
+        "metadata",
+        "search",
+        "atmos"
+      ],
+      "downloads": 0,
+      "updated_at": "2026-10-29T00:00:00Z",
+      "min_app_version": "4.9.1"
+    }
+  ]
+}
